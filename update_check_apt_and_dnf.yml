@@ -1,0 +1,55 @@
+---
+- name: Verfügbare Updates auf Linux-Servern prüfen
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  tasks:
+
+    - name: Updates auf APT-Systemen prüfen
+      when: ansible_facts.pkg_mgr == "apt"
+      block:
+
+        - name: APT-Cache aktualisieren
+          apt:
+            update_cache: yes
+          changed_when: false
+
+        - name: Verfügbare Updates prüfen (APT)
+          shell: apt list --upgradable 2>/dev/null | tail -n +2
+          register: apt_updates
+          changed_when: false
+
+        - name: Ergebnis anzeigen (APT)
+          debug:
+            msg: >
+              {{ inventory_hostname }} -
+              {% if apt_updates.stdout == "" %}
+              Keine verfügbaren Updates.
+              {% else %}
+              Verfügbare Updates:
+              {{ apt_updates.stdout.split('\n') }}
+              {% endif %}
+
+    - name: Updates auf DNF-Systemen prüfen
+      when: ansible_facts.pkg_mgr == "dnf"
+      block:
+
+        - name: Verfügbare Updates prüfen (DNF)
+          command: dnf check-update
+          register: dnf_updates
+          failed_when: false
+          changed_when: false
+
+        - name: Ergebnis anzeigen (DNF)
+          debug:
+            msg: >
+              {{ inventory_hostname }} -
+              {% if dnf_updates.rc == 0 %}
+              Keine verfügbaren Updates.
+              {% elif dnf_updates.rc == 100 %}
+              Verfügbare Updates:
+              {{ dnf_updates.stdout_lines }}
+              {% else %}
+              Fehler beim Prüfen der Updates.
+              {% endif %}
