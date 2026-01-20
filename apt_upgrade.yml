@@ -1,0 +1,22 @@
+---
+- name: Systemaktualisierung mit APT
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Paketliste aktualisieren
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Alle installierten Pakete aktualisieren
+      apt:
+        upgrade: yes
+
+    - name: Nicht mehr benötigte Pakete entfernen
+      apt:
+        autoremove: yes
+
+    - name: Paket-Cache bereinigen
+      apt:
+        autoclean: yes
