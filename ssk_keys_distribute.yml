@@ -1,0 +1,88 @@
+---
+- name: Dystrybucja kluczy SSH użytkowników do serwerów
+  hosts: all
+  become: yes
+  gather_facts: no
+  
+  # Zmienna ansible_user będzie pytana z klawiatury
+  vars_prompt:
+    - name: "ansible_user"
+      prompt: "Podaj użytkownika docelowego na serwerach (np. ubuntu, ec2-user, admin): "
+      private: no
+      default: "ubuntu"
+  
+  vars:
+    ssh_keys_dir: "/opt/ansible/ssh"
+    authorized_keys_path: "/home/{{ ansible_user }}/.ssh/authorized_keys"
+    
+  pre_tasks:
+    - name: Wyświetl informacje o dystrybucji
+      debug:
+        msg: |
+          ==========================================
+          Dystrybucja kluczy SSH dla użytkownika: {{ ansible_user }}
+          Katalog źródłowy: {{ ssh_keys_dir }}
+          ==========================================
+
+    - name: Lista dostępnych kluczy SSH
+      local_action:
+        module: find
+        paths: "{{ ssh_keys_dir }}"
+        patterns: "*.pub"
+      register: ssh_keys
+      delegate_to: localhost
+      run_once: true
+
+    - name: Sprawdź czy są dostępne klucze
+      fail:
+        msg: "❌ Brak kluczy SSH w {{ ssh_keys_dir }}! Użytkownicy muszą najpierw umieścić swoje *.pub pliki."
+      when: ssh_keys.files | length == 0
+
+    - name: Wyświetl dostępne klucze do dystrybucji
+      debug:
+        msg: |
+          ✅ Znaleziono {{ ssh_keys.files | length }} kluczy:
+          {{ ssh_keys.files | map(attribute='path') | map('basename') | list | join('\n  - ') }}
+
+  tasks:
+    - name: Utwórz katalog .ssh na serwerach
+      file:
+        path: "/home/{{ ansible_user }}/.ssh"
+        state: directory
+        mode: '0700'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Skopiuj klucze SSH na serwery
+      authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ item.path }}"
+        state: present
+        exclusive: no
+      loop: "{{ ssh_keys.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      register: auth_keys_result
+
+    - name: Ustaw poprawne uprawnienia authorized_keys
+      file:
+        path: "{{ authorized_keys_path }}"
+        mode: '0600'
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      when: auth_keys_result is changed
+
+  post_tasks:
+    - name: Podsumowanie dystrybucji
+      debug:
+        msg: |
+          ✅ Dystrybucja zakończona sukcesem!
+          Użytkownik: {{ ansible_user }}
+          Liczba kluczy: {{ ssh_keys.files | length }}
+          Plik docelowy: {{ authorized_keys_path }}
+
+  handlers:
+    - name: restart ssh
+      service:
+        name: ssh
+        state: restarted
